@@ -1,0 +1,11 @@
+# Backup files
+*.working
+*.working_with_storage
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/ 

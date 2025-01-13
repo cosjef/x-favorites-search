@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {
+            width: 300px;
+            padding: 10px;
+        }
+        input {
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 5px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 5px;
+        }
+        #results {
+            margin-top: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <input 
+        type="text" 
+        id="searchInput" 
+        placeholder="Enter search term..."
+    >
+    <button id="searchButton">Search Favorites</button>
+    <div id="results"></div>
+    <script src="popup.js"></script>
+</body>
+</html> 

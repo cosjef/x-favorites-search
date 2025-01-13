@@ -1,0 +1,23 @@
+{
+    "manifest_version": 3,
+    "name": "X Favorites Search",
+    "version": "1.0",
+    "description": "Search through your X (Twitter) favorites",
+    "permissions": [
+        "activeTab",
+        "scripting",
+        "cookies",
+        "storage"
+    ],
+    "host_permissions": [
+        "https://twitter.com/*",
+        "https://x.com/*",
+        "https://api.twitter.com/*"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "action": {
+        "default_popup": "popup.html"
+    }
+} 
