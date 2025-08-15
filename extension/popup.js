@@ -12,12 +12,36 @@ document.addEventListener('DOMContentLoaded', async () => {
             attachLoadMoreHandler();
         }
     }
+
+    // Enable Enter key search
+    document.getElementById('searchInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            document.getElementById('searchButton').click();
+        }
+    });
 });
 
 document.getElementById('searchButton').addEventListener('click', async () => {
     const searchTerm = document.getElementById('searchInput').value;
     const resultsDiv = document.getElementById('results');
-    resultsDiv.innerHTML = 'Searching...';
+    const searchButton = document.getElementById('searchButton');
+    
+    if (!searchTerm.trim()) {
+        resultsDiv.innerHTML = '<div class="error-message">Please enter a search term</div>';
+        return;
+    }
+
+    // Update button to loading state
+    searchButton.disabled = true;
+    searchButton.innerHTML = '<div class="loading-spinner"></div><span>Searching...</span>';
+    
+    // Show loading message
+    resultsDiv.innerHTML = `
+        <div class="results-header">
+            <span>🔍 Searching your favorites for "${searchTerm}"...</span>
+        </div>
+    `;
+    
     console.log('Starting search for:', searchTerm);
 
     try {
@@ -150,23 +174,30 @@ document.getElementById('searchButton').addEventListener('click', async () => {
         console.log('Tweets after filtering:', matchingTweets);
 
         if (matchingTweets.length === 0) {
-            resultsDiv.innerHTML = `No matches found in ${apiResult.tweets.length} tweets searched.`;
+            resultsDiv.innerHTML = `
+                <div class="no-results">
+                    <strong>No matches found</strong><br>
+                    Searched ${apiResult.tweets.length} tweets for "${searchTerm}"
+                </div>
+            `;
             return;
         }
 
         const resultsHtml = `
-            <div style="margin-bottom: 10px; font-weight: bold;">
-                Found ${matchingTweets.length} matches in ${apiResult.tweets.length} tweets searched:
-                ${apiResult.reachedLimit ? '<button id="loadMore" style="margin-left: 10px; margin-top: 10px; padding: 5px 10px;">Load More</button>' : ''}
+            <div class="results-header">
+                <span>✨ Found ${matchingTweets.length} matches in ${apiResult.tweets.length} tweets</span>
+                ${apiResult.reachedLimit ? '<button id="loadMore" class="load-more-btn">Load More</button>' : ''}
             </div>
             ${matchingTweets.map(tweet => `
-                <div style="border-bottom: 1px solid #ccc; padding: 10px 0;">
-                    <p>${tweet.text}</p>
-                    <small>
-                        By ${tweet.author} 
-                        on ${new Date(tweet.date).toLocaleDateString()}
-                        <a href="${tweet.link}" target="_blank">View Tweet</a>
-                    </small>
+                <div class="tweet-card">
+                    <div class="tweet-text">${escapeHtml(tweet.text)}</div>
+                    <div class="tweet-meta">
+                        <div>
+                            <span class="tweet-author">${escapeHtml(tweet.author)}</span>
+                            <span class="tweet-date">• ${formatDate(tweet.date)}</span>
+                        </div>
+                        <a href="${tweet.link}" target="_blank" class="tweet-link">View Tweet →</a>
+                    </div>
                 </div>
             `).join('')}
         `;
@@ -190,9 +221,44 @@ document.getElementById('searchButton').addEventListener('click', async () => {
 
     } catch (error) {
         console.error('Search error:', error);
-        resultsDiv.innerHTML = 'Error: ' + error.message;
+        resultsDiv.innerHTML = `
+            <div class="error-message">
+                <strong>Search Error</strong><br>
+                ${error.message}
+            </div>
+        `;
+    } finally {
+        // Reset button state
+        searchButton.disabled = false;
+        searchButton.innerHTML = '<span class="button-text">Search Favorites</span>';
     }
 });
+
+// Utility functions
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'Unknown date';
+    try {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffTime = Math.abs(now - date);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        if (diffDays === 1) return '1 day ago';
+        if (diffDays < 7) return `${diffDays} days ago`;
+        if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+        if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+        
+        return date.toLocaleDateString();
+    } catch (e) {
+        return dateString;
+    }
+}
 
 function attachLoadMoreHandler() {
     document.getElementById('loadMore')?.addEventListener('click', async () => {
