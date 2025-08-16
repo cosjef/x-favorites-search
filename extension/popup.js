@@ -1,3 +1,4 @@
+
 document.addEventListener('DOMContentLoaded', async () => {
     const resultsDiv = document.getElementById('results');
     const { lastSearch } = await chrome.storage.local.get('lastSearch');
@@ -13,34 +14,56 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    // Enable Enter key search
-    document.getElementById('searchInput').addEventListener('keypress', (e) => {
+
+    // Enable Enter key search and real-time search
+    const searchInput = document.getElementById('searchInput');
+    let searchTimeout;
+    
+    searchInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
-            document.getElementById('searchButton').click();
+            performSearch();
         }
+    });
+    
+    // Optional: Add real-time search with debounce
+    searchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            const value = searchInput.value.trim();
+            if (value.length > 2) { // Only search after 3+ characters
+                performSearch();
+            } else if (value.length === 0) {
+                // Clear results if search is empty
+                document.getElementById('results').innerHTML = '';
+            }
+        }, 500); // 500ms debounce
     });
 });
 
-document.getElementById('searchButton').addEventListener('click', async () => {
+async function performSearch() {
+    console.log('=== POPUP SEARCH STARTED ===');
     const searchTerm = document.getElementById('searchInput').value;
     const resultsDiv = document.getElementById('results');
-    const searchButton = document.getElementById('searchButton');
+    
+    console.log('Search term from popup:', searchTerm);
     
     if (!searchTerm.trim()) {
         resultsDiv.innerHTML = '<div class="error-message">Please enter a search term</div>';
         return;
     }
 
-    // Update button to loading state
-    searchButton.disabled = true;
-    searchButton.innerHTML = '<div class="loading-spinner"></div><span>Searching...</span>';
+    // Show loading message with progress
+    const updateProgress = (message, count = 0) => {
+        resultsDiv.innerHTML = `
+            <div class="results-header">
+                <div style="margin-bottom: 8px;">🔍 ${message}</div>
+                ${count > 0 ? `<div style="font-size: 11px; margin-bottom: 4px; opacity: 0.8;">Found ${count} tweets so far...</div>` : ''}
+                <div style="font-size: 11px; opacity: 0.8; line-height: 1.3;">App is automatically scrolling your Twitter likes page</div>
+            </div>
+        `;
+    };
     
-    // Show loading message
-    resultsDiv.innerHTML = `
-        <div class="results-header">
-            <span>🔍 Searching your favorites for "${searchTerm}"...</span>
-        </div>
-    `;
+    updateProgress("Starting search and auto-scroll...");
     
     console.log('Starting search for:', searchTerm);
 
@@ -73,37 +96,117 @@ document.getElementById('searchButton').addEventListener('click', async () => {
                     };
 
                     // Get tweets from the page
-                    const getTweets = async (scrollAttempts = 20) => {
+                    const getTweets = async (scrollAttempts = 100) => {
                         let allTweets = new Set();
                         let lastTweetCount = 0;
                         let reachedLimit = false;
+                        let noNewTweetsCount = 0;
+                        
+                        console.log('Starting tweet collection...');
                         
                         for (let i = 0; i < scrollAttempts; i++) {
                             const tweetElements = document.querySelectorAll('[data-testid="tweet"]');
-                            tweetElements.forEach(tweet => {
+                            console.log(`Scroll attempt ${i + 1}: Found ${tweetElements.length} tweet elements on page`);
+                            
+                            tweetElements.forEach((tweet, index) => {
+                                // Try multiple selectors for tweet text since Twitter/X changes them frequently
+                                const tweetTextElement = tweet.querySelector('[data-testid="tweetText"]') || 
+                                                        tweet.querySelector('[lang]') || 
+                                                        tweet.querySelector('div[dir="auto"]') ||
+                                                        tweet.querySelector('.css-1rynq56') ||
+                                                        tweet.querySelector('span');
+                                
+                                const authorElement = tweet.querySelector('[data-testid="User-Name"]') ||
+                                                    tweet.querySelector('a[role="link"] span') ||
+                                                    tweet.querySelector('[data-testid="User-Names"]');
+                                
+                                const timeElement = tweet.querySelector('time');
+                                const linkElement = tweet.querySelector('a[href*="/status/"]');
+                                
+                                // Try to get text content more aggressively
+                                let tweetText = '';
+                                if (tweetTextElement) {
+                                    tweetText = tweetTextElement.innerText || tweetTextElement.textContent || '';
+                                }
+                                
+                                // If still no text, try to find any text content in the tweet
+                                if (!tweetText) {
+                                    const textNodes = tweet.querySelectorAll('span, div');
+                                    for (const node of textNodes) {
+                                        const text = node.innerText || node.textContent || '';
+                                        if (text.length > 10 && !text.includes('·') && !text.includes('@')) {
+                                            tweetText = text;
+                                            break;
+                                        }
+                                    }
+                                }
+                                
                                 const tweetData = {
-                                    text: tweet.querySelector('[data-testid="tweetText"]')?.innerText || '',
-                                    author: tweet.querySelector('[data-testid="User-Name"]')?.innerText || '',
-                                    date: tweet.querySelector('time')?.getAttribute('datetime') || '',
-                                    link: tweet.querySelector('a[href*="/status/"]')?.href || ''
+                                    text: tweetText,
+                                    author: authorElement?.innerText || authorElement?.textContent || '',
+                                    date: timeElement?.getAttribute('datetime') || '',
+                                    link: linkElement?.href || ''
                                 };
                                 
-                                if (tweetData.link && tweetData.text) {
-                                    allTweets.add(JSON.stringify(tweetData));
+                                // Debug logging for first few tweets on first scroll
+                                if (index < 5 && i === 0) {
+                                    console.log(`=== TWEET ${index} DEBUG ===`);
+                                    console.log('Tweet element:', tweet);
+                                    console.log('Text element found:', !!tweetTextElement);
+                                    console.log('Raw text content:', tweetData.text);
+                                    console.log('Text length:', tweetData.text.length);
+                                    console.log('Has link:', !!linkElement);
+                                    console.log('Link:', linkElement?.href);
+                                    console.log('Author:', tweetData.author);
+                                    console.log('Will be added to collection:', !!(tweetData.link && tweetData.text && tweetData.text.length > 5));
+                                    console.log('=========================');
+                                }
+                                
+                                if (tweetData.link && tweetData.text && tweetData.text.length > 5) {
+                                    // Create a clean object to avoid serialization issues
+                                    const cleanTweet = {
+                                        text: String(tweetData.text),
+                                        author: String(tweetData.author),
+                                        date: String(tweetData.date),
+                                        link: String(tweetData.link)
+                                    };
+                                    allTweets.add(JSON.stringify(cleanTweet));
                                 }
                             });
 
                             const currentCount = allTweets.size;
+                            console.log(`Total unique tweets collected: ${currentCount}`);
+                            
+                            
                             if (currentCount === lastTweetCount) {
-                                console.log('No new tweets found, stopping scroll');
-                                break;
+                                noNewTweetsCount++;
+                                console.log(`No new tweets found (${noNewTweetsCount}/5)`);
+                                if (noNewTweetsCount >= 5) {
+                                    console.log('No new tweets for 5 attempts, stopping scroll');
+                                    break;
+                                }
+                            } else {
+                                noNewTweetsCount = 0;
                             }
                             
                             lastTweetCount = currentCount;
-                            console.log(`Loading tweets... (${currentCount} found)`);
                             
-                            window.scrollTo(0, document.body.scrollHeight);
-                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            // More aggressive scrolling
+                            const currentScrollTop = window.pageYOffset;
+                            window.scrollTo({
+                                top: document.body.scrollHeight,
+                                behavior: 'smooth'
+                            });
+                            
+                            // Wait for content to load
+                            await new Promise(resolve => setTimeout(resolve, 800));
+                            
+                            // Check if we actually scrolled
+                            const newScrollTop = window.pageYOffset;
+                            if (newScrollTop === currentScrollTop && i > 10) {
+                                console.log('Page did not scroll further, likely reached end');
+                                break;
+                            }
 
                             if (i === scrollAttempts - 1) {
                                 reachedLimit = true;
@@ -118,24 +221,41 @@ document.getElementById('searchButton').addEventListener('click', async () => {
 
                     // Navigate to likes if not already there
                     const profileLink = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
-                    if (!profileLink) throw new Error('Could not find profile link');
+                    if (!profileLink) throw new Error('Could not find profile link - make sure you are on Twitter/X');
                     
                     const userId = profileLink.href.split('/').pop();
                     const currentUrl = window.location.href;
-                    const likesUrl = `https://twitter.com/${userId}/likes`;
+                    const likesUrl = `https://x.com/${userId}/likes`;
+
+                    console.log('Current URL:', currentUrl);
+                    console.log('Target likes URL:', likesUrl);
 
                     if (!currentUrl.includes('/likes')) {
+                        console.log('Navigating to likes page...');
                         window.location.href = likesUrl;
-                        await waitForElement('[data-testid="tweet"]');
+                        await waitForElement('[data-testid="tweet"]', 10000);
+                        console.log('Likes page loaded, starting tweet collection...');
+                    } else {
+                        console.log('Already on likes page, starting tweet collection...');
                     }
 
-                    // Get initial tweets
+                    // Get tweets and filter them in the content script
                     let tweets = await getTweets();
                     console.log('Found tweets:', tweets.tweets.length);
+                    
+                    // Filter for matches right here in the content script
+                    const matchingTweets = tweets.tweets.filter(tweet => 
+                        tweet.text.toLowerCase().includes(term.toLowerCase())
+                    );
+                    
+                    console.log('Matching tweets found:', matchingTweets.length);
+                    console.log('Search term was:', term);
 
                     return {
                         success: true,
                         tweets: tweets.tweets,
+                        matchingTweets: matchingTweets, // Pre-filtered matches
+                        totalScanned: tweets.tweets.length,
                         debug: { userId },
                         reachedLimit: tweets.reachedLimit
                     };
@@ -153,31 +273,38 @@ document.getElementById('searchButton').addEventListener('click', async () => {
 
         console.log('Script execution results:', results);
         
-        if (!results || !results[0] || !results[0].result) {
-            throw new Error('Script execution failed to return results');
+        if (!results || !results[0]) {
+            throw new Error('Script execution failed - no results returned');
+        }
+        
+        if (!results[0].result) {
+            throw new Error('Script execution failed - no result in response');
         }
 
         const apiResult = results[0].result;
         console.log('API result:', apiResult);
+        console.log('API result tweets length:', apiResult.tweets?.length);
+        console.log('First 3 API result tweets:', apiResult.tweets?.slice(0, 3));
 
         if (!apiResult.success) {
             throw new Error(`Script error: ${apiResult.error}`);
         }
 
-        // Add debug log
-        console.log('Tweets before filtering:', apiResult.tweets);
-
-        const matchingTweets = apiResult.tweets
-            .filter(tweet => tweet.text.toLowerCase().includes(searchTerm.toLowerCase()));
-
-        // Add debug log
-        console.log('Tweets after filtering:', matchingTweets);
+        // Use pre-filtered matches from content script
+        console.log('Total tweets scanned:', apiResult.totalScanned);
+        console.log('Pre-filtered matches received:', apiResult.matchingTweets?.length);
+        
+        const matchingTweets = apiResult.matchingTweets || [];
+        
+        if (matchingTweets.length > 0) {
+            console.log('Sample matching tweet:', matchingTweets[0].text?.substring(0, 100));
+        }
 
         if (matchingTweets.length === 0) {
             resultsDiv.innerHTML = `
                 <div class="no-results">
                     <strong>No matches found</strong><br>
-                    Searched ${apiResult.tweets.length} tweets for "${searchTerm}"
+                    Searched ${apiResult.totalScanned} tweets for "${searchTerm}"
                 </div>
             `;
             return;
@@ -185,7 +312,7 @@ document.getElementById('searchButton').addEventListener('click', async () => {
 
         const resultsHtml = `
             <div class="results-header">
-                <span>✨ Found ${matchingTweets.length} matches in ${apiResult.tweets.length} tweets</span>
+                <span>✨ Found ${matchingTweets.length} matches in ${apiResult.totalScanned} tweets</span>
                 ${apiResult.reachedLimit ? '<button id="loadMore" class="load-more-btn">Load More</button>' : ''}
             </div>
             ${matchingTweets.map(tweet => `
@@ -193,8 +320,8 @@ document.getElementById('searchButton').addEventListener('click', async () => {
                     <div class="tweet-text">${escapeHtml(tweet.text)}</div>
                     <div class="tweet-meta">
                         <div>
-                            <span class="tweet-author">${escapeHtml(tweet.author)}</span>
-                            <span class="tweet-date">• ${formatDate(tweet.date)}</span>
+                            <div class="tweet-author">${escapeHtml(tweet.author)}</div>
+                            <div class="tweet-date">${formatDate(tweet.date)}</div>
                         </div>
                         <a href="${tweet.link}" target="_blank" class="tweet-link">View Tweet →</a>
                     </div>
@@ -227,12 +354,8 @@ document.getElementById('searchButton').addEventListener('click', async () => {
                 ${error.message}
             </div>
         `;
-    } finally {
-        // Reset button state
-        searchButton.disabled = false;
-        searchButton.innerHTML = '<span class="button-text">Search Favorites</span>';
     }
-});
+}
 
 // Utility functions
 function escapeHtml(text) {
