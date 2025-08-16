@@ -116,9 +116,9 @@ async function performSearch() {
                                                         tweet.querySelector('.css-1rynq56') ||
                                                         tweet.querySelector('span');
                                 
-                                const authorElement = tweet.querySelector('[data-testid="User-Name"]') ||
-                                                    tweet.querySelector('a[role="link"] span') ||
-                                                    tweet.querySelector('[data-testid="User-Names"]');
+                                const authorElement = tweet.querySelector('[data-testid="User-Name"] span') ||
+                                                    tweet.querySelector('[data-testid="User-Name"]') ||
+                                                    tweet.querySelector('a[role="link"] span:first-child');
                                 
                                 const timeElement = tweet.querySelector('time');
                                 const linkElement = tweet.querySelector('a[href*="/status/"]');
@@ -141,9 +141,14 @@ async function performSearch() {
                                     }
                                 }
                                 
+                                // Clean author text to remove any timestamps
+                                let authorText = authorElement?.innerText || authorElement?.textContent || '';
+                                // Remove timestamp patterns like "Sep 18, 2023" or "· 2h"
+                                authorText = authorText.replace(/\s*·.*$/g, '').replace(/\s*\w{3}\s+\d{1,2},\s+\d{4}.*$/g, '').trim();
+                                
                                 const tweetData = {
                                     text: tweetText,
-                                    author: authorElement?.innerText || authorElement?.textContent || '',
+                                    author: authorText,
                                     date: timeElement?.getAttribute('datetime') || '',
                                     link: linkElement?.href || ''
                                 };
